@@ -1,0 +1,13 @@
+quantity,observed_min,observed_max,theoretical_min,theoretical_max,status
+l_row_l1,33,223,-127,383,PASS
+h_row_l1,-129,145,-255,255,PASS
+ll1,64,184,-382,638,PASS
+hl1,-97,209,-510,510,PASS
+lh1,-95,93,-510,510,PASS
+hh1,-257,257,-510,510,PASS
+l_row_l2,57,172,-892,1148,PASS
+h_row_l2,-51,70,-1020,1020,PASS
+ll2,105,148,-1912,2168,PASS
+hl2,-63,39,-2040,2040,PASS
+lh2,-49,95,-2040,2040,PASS
+hh2,-49,56,-2040,2040,PASS

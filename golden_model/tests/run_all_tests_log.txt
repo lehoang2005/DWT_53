@@ -1,0 +1,184 @@
+##########################################
+# DWT53 Golden Model - Regression Suite
+# Scope: GATE_1 + GATE_2 + GATE_3 + GATE_4
+# Generated at   : 22-Aug-2026 15:40:09
+# Runtime        : MATLAB 24.1.0.2537033 (R2024a)
+# Platform       : PCWIN64
+# Log file       : D:\Sem. 6\Technical Writing\golden_model\tests\run_all_tests_log.txt
+# Seeds (fixed)  : 1D=12345  2D=777  2level=2026  export=4040  packed=5150
+#
+# SOURCE FINGERPRINT -- which snapshot produced this log
+# Format: <hash1>-<hash2>-<bytes>.  Two independent weighted byte
+# sums plus the byte count.  NOT cryptographic: it detects an edited
+# or swapped file, it does not resist a deliberate forgery.  Its job
+# is to stop a PASS log being paired with the wrong source snapshot.
+#   floor_divide_int.m           01E7E422-131E96CD-1803
+#   int_to_hex_signed.m          02AB0122-1DF06346-2469
+#   hex_signed_to_int.m          0118D990-092B52D6-1052
+#   dwt53_forward_1d.m           048300A7-44C238DF-4523
+#   dwt53_inverse_1d.m           04304D68-3F2F2D8A-4238
+#   dwt53_forward_2d.m           03992548-309C55C5-3563
+#   dwt53_inverse_2d.m           027A3AA2-1C4B8865-2518
+#   dwt53_forward_2level.m       029BA454-1E78C4BE-2647
+#   dwt53_inverse_2level.m       01A2A539-0FC0E853-1650
+#   dwt53_pack_2d.m              016E696C-0D21DA3B-1376
+#   dwt53_unpack_2d.m            0125DFD1-0A11F752-1161
+#   dwt53_pack_2level.m          01E1CA56-121E5391-1754
+#   dwt53_unpack_2level.m        00C256C3-05E768B7-758
+#   export_golden_vectors.m      0AD0632A-374BDF49-10310
+#   export_golden_vectors_1d.m   0B8AB0CF-5E2109A1-10952
+#   export_packed_planes.m       11679922-E2F091CF-16803
+#   gen_golden_vectors.m         08022124-B5F244FC-7954
+#   tests/run_all_tests.m        0ADD17F3-351CDDD2-10329
+#   tests/test_floor_divide_int.m 03780DB3-2ED5A09A-3476
+#   tests/test_dwt53_1d.m        0DF62152-F09E9325-13495
+#   tests/test_dwt53_2d.m        095A5BA8-F140CA84-9102
+#   tests/test_dwt53_2level.m    13F35690-BC3DA583-19317
+#   tests/test_int_hex_signed.m  0428D676-3EFEC216-4117
+#   tests/test_export_golden_vectors.m 07F9F6C7-B33AF0A9-7532
+#   tests/test_export_packed_planes.m 0BF320FB-71C7880D-11536
+#   test_data/real_frame.png     0C807775-85357923-366907
+##########################################
+
+[1/7] floor_divide_int ...........................
+[PASS] test_floor_divide_int: 8016 assertions passed
+
+[2/7] dwt53_forward_1d / dwt53_inverse_1d ........
+=== test_dwt53_1d: Gate 1 regression ===
+  [PASS] canonical spec vectors (Section 10.1-10.3)
+  [PASS] constant/ramp/impulse/alternating patterns at 9 lengths
+  [PASS] exhaustive length-2 Y8 sweep: 65536/65536 vectors bit-exact
+  [PASS] 1000 seeded random Y8 vectors (seed=12345), all bit-exact
+  [PASS] every even length from 2 to 256 exercised
+  [PASS] row-vector and column-vector orientation preserved
+  [PASS] N=2 (M=1) scalar-subband orientation limitation documented and value-exact
+  [PASS] explicit negative-rounding corner cases
+  [PASS] boundary-sample-specific cases
+  [PASS] error-path validation (empty/odd-length/non-integer/non-vector)
+
+--- test_dwt53_1d summary ---
+Total cases executed        : 66769
+Maximum reconstruction error: 0
+Observed coefficient range  : [-255, 309]
+Arithmetic dtype            : int64 throughout
+[PASS] test_dwt53_1d: ALL categories passed, max reconstruction error = 0
+
+[3/7] dwt53_forward_2d / dwt53_inverse_2d ........
+=== test_dwt53_2d: Gate 2 regression ===
+  [PASS] canonical spec vector Section 10.4 (forward, pack, unpack, inverse all bit-exact)
+  [PASS] pack/unpack quadrant layout verified with distinguishable values
+  [PASS] constant/ramp/checkerboard/impulse patterns at 12 sizes (incl. non-square small sizes)
+  [PASS] 24 seeded random images (seed=777) across 8 sizes, all bit-exact
+  [PASS] error-path validation
+
+--- test_dwt53_2d summary ---
+Total cases executed        : 146
+Maximum reconstruction error: 0
+Observed coefficient range  : [-510, 389]
+Arithmetic dtype            : int64 throughout
+[PASS] test_dwt53_2d: ALL categories passed, max reconstruction error = 0
+
+[4/7] dwt53_forward_2level / dwt53_inverse_2level 
+=== test_dwt53_2level: Gate 3 regression ===
+  [PASS] canonical spec vector Section 10.4 (LL2/HL2/LH2/HH2, packed C2, unpack, inverse all bit-exact)
+  [PASS] Level 2 decomposes ONLY LL1 -- HL1/LH1/HH1 untouched, cross-checked against one-level forward_2d
+  [PASS] all 7 subband dimensions verified correct at 7 sizes
+         (incl. 720x1280 = the 1280-wide x 720-high baseline frame,
+          and 1280x720 = its portrait transpose)
+  [PASS] constant/ramp/checkerboard/impulse patterns at 10 sizes (incl. required 4x4/8x8/64x64)
+  [PASS] 5 seeded random (synthetic) frames (seed=2026), including 1280x720, all bit-exact
+  [PASS] Real/natural 1280x720 Y8 frame
+    PROVENANCE CAVEAT           : upscaled "Cameraman" photograph,
+                                  NOT a D8M capture cropped from a
+                                  1408x792 sensor frame (spec 4).
+                                  Bicubic resize band-limits the
+                                  image, so HH1/HH2 energy is lower
+                                  than a genuine camera frame.
+    Input size                  : 720x1280
+    Input type                  : uint8
+    Input range                 : 0..255
+    Maximum reconstruction error: 0
+    Bit-exact reconstruction    : PASS
+  [PASS] 6 directed extreme patterns: bounds respected, round trip exact
+    Level-1 frozen bound        : [  -510,    638]
+    Level-1 best observed       : [  -510,    383]  (checker_p1)
+    Level-2 frozen bound        : [ -2040,   2168]
+    Level-2 best observed       : [  -645,    283]  (checker_p2)
+    HEADROOM NOTE: the Level-2 bound is provably conservative and is
+    NOT reachable by any Y8 input found so far, so signed 16-bit
+    storage is never stressed near its limit by this suite.
+  [PASS] error-path validation (non-/4 dimensions, incomplete struct)
+
+--- test_dwt53_2level summary ---
+Total cases executed        : 101
+Maximum reconstruction error: 0
+Observed coefficient range  : [-645, 420]
+Arithmetic dtype            : int64 throughout
+[PASS] test_dwt53_2level: ALL categories passed, max reconstruction error = 0
+
+[5/7] int_to_hex_signed / hex_signed_to_int ......
+[PASS] test_int_hex_signed: 65817 assertions passed
+
+[6/7] export_golden_vectors (readback round trip) 
+=== test_export_golden_vectors: Gate 4 regression ===
+  [PASS] export produced both positive and negative coefficients (min=-270, max=307)
+  [PASS] input pixels: dec and hex readback both reconstruct the original image exactly
+  [PASS] all 7 subbands: dec and hex readback both reconstruct exactly (14 files checked)
+  [PASS] README exists, non-empty, documents row-major convention and all subband names
+  [PASS] error-path validation
+
+[PASS] test_export_golden_vectors: 19 assertions passed, all files bit-exact round trip
+
+[7/7] export_packed_planes (packed C1/C2 readback) ..
+=== test_export_packed_planes: packed C1/C2 export regression ===
+  [PASS] export produced both positive and negative coefficients (min=-262, max=258)
+  [PASS] input_y8: dec and hex readback both exact (8-bit unsigned)
+  [PASS] c1_packed: dec and hex exact; LL/HL/LH/HH quadrants in the spec 8.2 positions
+  [PASS] c2_packed: dec and hex readback both exact
+  [PASS] Level-2 containment holds on the files: only the LL1 quadrant changed
+  [PASS] recon_y8 equals the input exactly, verified through the files
+  [PASS] manifest: dims, line counts and signature triple all independently reproduced
+         sig_count=384  sig_xor=FF28  sig_sum=00C50772
+  [PASS] error-path validation
+
+[PASS] test_export_packed_planes: 13 assertions passed, all planes bit-exact round trip
+
+##########################################
+# GATE 1 RESULT: PASS
+# Total 1D cases           : 66769
+# Max reconstruction error : 0
+# Coefficient range (PLAT) : [-255, 309]
+#
+# GATE 2 RESULT: PASS
+# Total 2D cases           : 146
+# Max reconstruction error : 0
+# Coefficient range (PLAT) : [-510, 389]
+#
+# GATE 3 RESULT: PASS
+# Total 2-level cases      : 101
+# Max reconstruction error : 0
+# Coefficient range (PLAT) : [-645, 420]
+#
+# GATE 4 RESULT: PASS
+# hex helper assertions    : 65817
+# export/readback asserts  : 19
+#
+# PACKED PLANE EXPORT: PASS
+# packed C1/C2 asserts      : 13
+#
+# Elapsed time             : 4.7 s
+# Log written to           : D:\Sem. 6\Technical Writing\golden_model\tests\run_all_tests_log.txt
+#
+# ACCEPTANCE CRITERIA -- which numbers above are portable
+# INVARIANT across MATLAB and Octave, compare these between runs:
+#   every case count, every max reconstruction error, every gate
+#   verdict, and every assertion count.
+# PLATFORM DEPENDENT, do NOT use as an acceptance criterion:
+#   the lines marked (PLAT).  rand('seed',N) drives a different
+#   legacy generator in MATLAB and in Octave, so the random content
+#   -- and therefore the observed coefficient range -- differs even
+#   at an identical seed.  Repeated runs on the SAME runtime are
+#   byte identical apart from timestamps and elapsed time.
+#
+# OVERALL: PASS
+##########################################

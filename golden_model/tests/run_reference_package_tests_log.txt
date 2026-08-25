@@ -1,0 +1,26 @@
+run_reference_package_tests;
+
+DWT53 reference-vector package tests
+====================================
+  [RUN ] test_dwt53_signature
+  [PASS] test_dwt53_signature
+  [RUN ] test_gen_dwt53_test_frame
+  [PASS] test_gen_dwt53_test_frame
+  [RUN ] test_export_checkpoint_signatures
+  [PASS] test_export_checkpoint_signatures
+  [RUN ] test_report_subband_ranges
+  [PASS] test_report_subband_ranges
+  [RUN ] test_export_golden_vectors_1d
+  [PASS] test_export_golden_vectors_1d
+  [RUN ] test_export_reference_vector_1d_set
+  [PASS] test_export_reference_vector_1d_set
+  [RUN ] test_export_reference_vector_set
+  [PASS] test_export_reference_vector_set
+  [RUN ] test_generate_reference_vectors
+Generated and independently verified 6 2D reference vector set(s) in:
+C:\Users\Lenovo\AppData\Local\Temp\tpc9f7d230_974a_4b80_a6f8_9ee598af28db\vectors_2d
+  [PASS] test_generate_reference_vectors
+====================================
+ALL 8 REFERENCE-PACKAGE TESTS PASS
+
+diary off;

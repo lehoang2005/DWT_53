@@ -1,0 +1,46 @@
+# DWT53 checkpoint reference signatures
+# A equals the existing RTL sum_acc under zero-fill.
+# B uses post-update A and is order-sensitive.
+signature_version = 1
+b_reference_order = row_major_stored_plane
+coefficient_bits = 16
+input_y8_w8_zero_count = 921600
+input_y8_w8_zero_xor = 00000030
+input_y8_w8_zero_a = 0716D978
+input_y8_w8_zero_sum = 0716D978
+input_y8_w8_zero_b = 5F4589A6
+c1_w16_zero_count = 921600
+c1_w16_zero_xor = 0000FE67
+c1_w16_zero_a = F2BAB9CF
+c1_w16_zero_sum = F2BAB9CF
+c1_w16_zero_b = A28C9F1C
+c1_w16_sign_count = 921600
+c1_w16_sign_xor = 0000FE67
+c1_w16_sign_a = 01C9B9CF
+c1_w16_sign_sum = 01C9B9CF
+c1_w16_sign_b = A5669F1C
+c2_w16_zero_count = 921600
+c2_w16_zero_xor = 0000012D
+c2_w16_zero_a = C085DDEB
+c2_w16_zero_sum = C085DDEB
+c2_w16_zero_b = F621AF92
+c2_w16_sign_count = 921600
+c2_w16_sign_xor = 0000012D
+c2_w16_sign_a = 0075DDEB
+c2_w16_sign_sum = 0075DDEB
+c2_w16_sign_b = 3174AF92
+ll1_w16_zero_count = 230400
+ll1_w16_zero_xor = 00000185
+ll1_w16_zero_a = 01DCE8FD
+ll1_w16_zero_sum = 01DCE8FD
+ll1_w16_zero_b = 9BEF8661
+ll1_w16_sign_count = 230400
+ll1_w16_sign_xor = 00000185
+ll1_w16_sign_a = 01C6E8FD
+ll1_w16_sign_sum = 01C6E8FD
+ll1_w16_sign_b = DDE88661
+recon_y8_w8_zero_count = 921600
+recon_y8_w8_zero_xor = 00000030
+recon_y8_w8_zero_a = 0716D978
+recon_y8_w8_zero_sum = 0716D978
+recon_y8_w8_zero_b = 5F4589A6
