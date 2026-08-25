@@ -36,14 +36,14 @@ module dwt53_checkpoint8 #(
     parameter int SAMPLE_W      = 16,
     parameter bit A_SIGN_EXTEND = 1'b0
 ) (
-    input  logic                           clk,
-    input  logic                           rst_n,
+    input  wire                            clk,
+    input  wire                            rst_n,
 
-    input  logic                           frame_start,
-    input  logic                           frame_end,
+    input  wire                            frame_start,
+    input  wire                            frame_end,
 
-    input  logic [7:0]                     lane_mask,
-    input  logic [8*SAMPLE_W-1:0]          samples_flat,
+    input  wire  [7:0]                     lane_mask,
+    input  wire  [8*SAMPLE_W-1:0]          samples_flat,
 
     output logic                           snapshot_valid,
     output logic [31:0]                    sig_count,

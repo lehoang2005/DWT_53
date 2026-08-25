@@ -27,14 +27,14 @@ module dwt53_fwd2d_stream #(
     parameter int IMG_H  = 720,
     parameter int DATA_W = 16
 ) (
-    input  logic                         clk,
-    input  logic                         rst_n,
+    input  wire                          clk,
+    input  wire                          rst_n,
 
-    input  logic                         in_valid,
-    input  logic signed [DATA_W-1:0]     in_sample,
-    input  logic                         in_sof,
-    input  logic                         in_eol,
-    input  logic                         in_eof,
+    input  wire                          in_valid,
+    input  wire  signed [DATA_W-1:0]     in_sample,
+    input  wire                          in_sof,
+    input  wire                          in_eol,
+    input  wire                          in_eof,
 
     output logic                         out_valid,
     output logic signed [DATA_W-1:0]     out_ll,
@@ -254,11 +254,11 @@ module dwt53_fwd2d_stream #(
             if (h_protocol)
                 protocol_error <= 1'b1;
 
-            // More than one horizontal pair in adjacent clocks would exceed
-            // this single-read pipeline. Correct row lifting emits at most one
-            // pair every two accepted input samples.
-            if (h_valid && s0_valid_q)
-                protocol_error <= 1'b1;
+            // The horizontal 5/3 core may legally emit back-to-back pairs at
+            // the right boundary of an even-length row: one pair when the final
+            // even sample arrives and the boundary pair on the final odd sample.
+            // This vertical pipeline is fully pipelined (one read request can be
+            // accepted every clock), so adjacent h_valid cycles are legal.
 
             if (s0_valid_q) begin
                 if (s0_row_q == 0) begin

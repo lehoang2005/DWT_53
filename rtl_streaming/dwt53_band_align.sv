@@ -18,19 +18,19 @@ module dwt53_band_align #(
     parameter int DATA_W = 16,
     parameter int DEPTH  = 16 * 640
 ) (
-    input  logic                         clk,
-    input  logic                         rst_n,
+    input  wire                          clk,
+    input  wire                          rst_n,
 
-    input  logic                         push_valid,
-    input  logic signed [DATA_W-1:0]     push_hl,
-    input  logic signed [DATA_W-1:0]     push_lh,
-    input  logic signed [DATA_W-1:0]     push_hh,
+    input  wire                          push_valid,
+    input  wire  signed [DATA_W-1:0]     push_hl,
+    input  wire  signed [DATA_W-1:0]     push_lh,
+    input  wire  signed [DATA_W-1:0]     push_hh,
 
-    input  logic                         ll_valid,
-    input  logic signed [DATA_W-1:0]     ll_sample,
-    input  logic                         ll_sof,
-    input  logic                         ll_eol,
-    input  logic                         ll_eof,
+    input  wire                          ll_valid,
+    input  wire  signed [DATA_W-1:0]     ll_sample,
+    input  wire                          ll_sof,
+    input  wire                          ll_eol,
+    input  wire                          ll_eof,
 
     output logic                         out_valid,
     output logic signed [DATA_W-1:0]     out_ll,

@@ -19,13 +19,13 @@
 module dwt53_fwd1d_pair_stream #(
     parameter int DATA_W = 16
 ) (
-    input  logic                         clk,
-    input  logic                         rst_n,
+    input  wire                          clk,
+    input  wire                          rst_n,
 
-    input  logic                         in_valid,
-    input  logic signed [DATA_W-1:0]     in_sample,
-    input  logic                         in_sov,     // first sample of vector
-    input  logic                         in_eov,     // last sample of vector
+    input  wire                          in_valid,
+    input  wire  signed [DATA_W-1:0]     in_sample,
+    input  wire                          in_sov,     // first sample of vector
+    input  wire                          in_eov,     // last sample of vector
 
     output logic                         out_valid,
     output logic signed [DATA_W-1:0]     out_l,

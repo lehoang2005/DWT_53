@@ -30,7 +30,18 @@ module tb_dwt53_streaming_two_frames #(
         .cp_re_snapshot_valid(s4v),.cp_re_count(s4c),.cp_re_xor(s4x),.cp_re_a(s4a),.cp_re_b(s4b)
     );
 
-    function automatic bit file_exists(input string p); integer fd; begin fd=$fopen(p,"r"); if(fd)begin$fclose(fd);file_exists=1;end else file_exists=0; end endfunction
+    function automatic bit file_exists(input string p);
+        integer fd;
+        begin
+            fd = $fopen(p, "r");
+            if (fd != 0) begin
+                $fclose(fd);
+                file_exists = 1'b1;
+            end else begin
+                file_exists = 1'b0;
+            end
+        end
+    endfunction
 
     task automatic send_one_frame;
         integer i,x;

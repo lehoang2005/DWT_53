@@ -25,17 +25,17 @@ module dwt53_inv2d_stream #(
     parameter int DATA_W    = 16,
     parameter int PIXEL_GAP = 1
 ) (
-    input  logic                         clk,
-    input  logic                         rst_n,
+    input  wire                          clk,
+    input  wire                          rst_n,
 
-    input  logic                         in_valid,
-    input  logic signed [DATA_W-1:0]     in_ll,
-    input  logic signed [DATA_W-1:0]     in_hl,
-    input  logic signed [DATA_W-1:0]     in_lh,
-    input  logic signed [DATA_W-1:0]     in_hh,
-    input  logic                         in_sof,
-    input  logic                         in_eol,
-    input  logic                         in_eof,
+    input  wire                          in_valid,
+    input  wire  signed [DATA_W-1:0]     in_ll,
+    input  wire  signed [DATA_W-1:0]     in_hl,
+    input  wire  signed [DATA_W-1:0]     in_lh,
+    input  wire  signed [DATA_W-1:0]     in_hh,
+    input  wire                          in_sof,
+    input  wire                          in_eol,
+    input  wire                          in_eof,
 
     output logic                         out_valid,
     output logic signed [DATA_W-1:0]     out_sample,
@@ -252,7 +252,23 @@ module dwt53_inv2d_stream #(
     logic last_block_bank_q;
     logic [Y_W-1:0] last_block_row_q;
 
-    wire fill_bank_free = fill_sel_q ? !bank1_ready_q : !bank0_ready_q;
+    // A bank can be released by the drain engine on the same clock edge that
+    // the transform side starts the next row-pair. bank*_ready_q is still 1
+    // before that edge, so account for the same-edge release explicitly.
+    wire bank0_release_now;
+    wire bank1_release_now;
+
+    wire fill_bank_free =
+        fill_sel_q ? (!bank1_ready_q || bank1_release_now)
+                   : (!bank0_ready_q || bank0_release_now);
+
+    // Drain-side effective-ready masks. bank*_clear_q is asserted on the same
+    // edge that emits the final pixel of a bank, while bank*_ready_q is cleared
+    // one clock later by the ownership FF. Without this mask the read scheduler
+    // can see a stale ready=1 for one cycle and request the just-drained bank
+    // again, replaying an entire reconstructed row pair.
+    wire bank0_drain_ready = bank0_ready_q && !bank0_clear_q;
+    wire bank1_drain_ready = bank1_ready_q && !bank1_clear_q;
 
     // -------------------------------------------------------------------------
     // Bottom-boundary flush. After the final input subband row, one final
@@ -384,8 +400,8 @@ module dwt53_inv2d_stream #(
                         // In steady state this must never happen: there is no
                         // pixel-level backpressure. Keep the sticky error so TB
                         // and hardware diagnostics expose a broken schedule.
-                        if ((!fill_sel_q && bank0_ready_q) ||
-                            ( fill_sel_q && bank1_ready_q))
+                        if ((!fill_sel_q && bank0_ready_q && !bank0_release_now) ||
+                            ( fill_sel_q && bank1_ready_q && !bank1_release_now))
                             buffer_error <= 1'b1;
 
                         h_prev_h_even_q <= v_h_even[DATA_W-1:0];
@@ -465,8 +481,8 @@ module dwt53_inv2d_stream #(
                     active_block_row_q <= SUB_H-1;
 
                     // Should be impossible because flush start waited for free.
-                    if ((!fill_sel_q && bank0_ready_q) ||
-                        ( fill_sel_q && bank1_ready_q))
+                    if ((!fill_sel_q && bank0_ready_q && !bank0_release_now) ||
+                        ( fill_sel_q && bank1_ready_q && !bank1_release_now))
                         buffer_error <= 1'b1;
 
                     h_prev_h_even_q <= f_v_h_even[DATA_W-1:0];
@@ -573,6 +589,16 @@ module dwt53_inv2d_stream #(
     integer gap_count_q;
 
     wire emit_now = cur_valid_q && (gap_count_q == 0);
+
+    // True on the edge that emits the final pixel stored in a bank.
+    assign bank0_release_now =
+        emit_now && cur_pix_phase_q && cur_row_phase_q &&
+        (cur_bx_q == SUB_W-1) && !cur_bank_q;
+
+    assign bank1_release_now =
+        emit_now && cur_pix_phase_q && cur_row_phase_q &&
+        (cur_bx_q == SUB_W-1) && cur_bank_q;
+
     function automatic logic signed [DATA_W-1:0] select_pixel(
         input logic [WORD_W-1:0] word,
         input logic row_phase,
@@ -599,7 +625,7 @@ module dwt53_inv2d_stream #(
         // Initial word of the oldest ready bank. The logical block-row tag
         // preserves output order even if bank-ready pulses are not simultaneous.
         if (!cur_valid_q && !next_valid_q && !rd_resp_valid_q) begin
-            if (bank0_ready_q && bank1_ready_q) begin
+            if (bank0_drain_ready && bank1_drain_ready) begin
                 if (bank0_row_q <= bank1_row_q) begin
                     rd_req           = 1'b1;
                     rd_req_bank      = 1'b0;
@@ -613,13 +639,13 @@ module dwt53_inv2d_stream #(
                     rd_req_row_phase = 1'b0;
                     rd_req_block_row = bank1_row_q;
                 end
-            end else if (bank0_ready_q) begin
+            end else if (bank0_drain_ready) begin
                 rd_req           = 1'b1;
                 rd_req_bank      = 1'b0;
                 rd_req_bx        = '0;
                 rd_req_row_phase = 1'b0;
                 rd_req_block_row = bank0_row_q;
-            end else if (bank1_ready_q) begin
+            end else if (bank1_drain_ready) begin
                 rd_req           = 1'b1;
                 rd_req_bank      = 1'b1;
                 rd_req_bx        = '0;
@@ -645,13 +671,13 @@ module dwt53_inv2d_stream #(
             end else begin
                 // End of a bank: prefetch the other bank only if it is already
                 // complete. Otherwise the drain safely pauses between row pairs.
-                if (!cur_bank_q && bank1_ready_q) begin
+                if (!cur_bank_q && bank1_drain_ready) begin
                     rd_req           = 1'b1;
                     rd_req_bank      = 1'b1;
                     rd_req_bx        = '0;
                     rd_req_row_phase = 1'b0;
                     rd_req_block_row = bank1_row_q;
-                end else if (cur_bank_q && bank0_ready_q) begin
+                end else if (cur_bank_q && bank0_drain_ready) begin
                     rd_req           = 1'b1;
                     rd_req_bank      = 1'b0;
                     rd_req_bx        = '0;
@@ -722,9 +748,12 @@ module dwt53_inv2d_stream #(
             bank0_clear_q      <= 1'b0;
             bank1_clear_q      <= 1'b0;
 
-            // Capture a read response. When it arrives exactly on the second
-            // pixel of the current word and no queued word exists, the word is
-            // consumed directly below to preserve continuous PIXEL_GAP=1 flow.
+            // Capture a read response.  A response that arrives while the
+            // second pixel of cur_word_q is emitted is handled by the handoff
+            // block below.  In that cycle the old next slot may be promoted to
+            // cur and the arriving response can refill next on the same edge.
+            // Looking only at pre-edge next_valid_q would falsely report a full
+            // two-entry queue for legal PIXEL_GAP=1 operation.
             if (rd_resp_valid_q) begin
                 if (!cur_valid_q) begin
                     cur_valid_q       <= 1'b1;
@@ -735,7 +764,7 @@ module dwt53_inv2d_stream #(
                     cur_pix_phase_q   <= 1'b0;
                     cur_block_row_q   <= rd_block_row_q;
                     gap_count_q       <= 0;
-                end else if (!(emit_now && cur_pix_phase_q && !next_valid_q)) begin
+                end else if (!(emit_now && cur_pix_phase_q)) begin
                     if (!next_valid_q) begin
                         next_valid_q     <= 1'b1;
                         next_word_q      <= rd_data_q;
@@ -793,7 +822,20 @@ module dwt53_inv2d_stream #(
                         cur_row_phase_q   <= next_row_phase_q;
                         cur_pix_phase_q   <= 1'b0;
                         cur_block_row_q   <= next_block_row_q;
-                        next_valid_q      <= 1'b0;
+
+                        // Same-cycle dequeue/enqueue: promote the queued word
+                        // and retain a simultaneously arriving BRAM response as
+                        // the new next word instead of flagging/dropping it.
+                        if (rd_resp_valid_q) begin
+                            next_valid_q     <= 1'b1;
+                            next_word_q      <= rd_data_q;
+                            next_bank_q      <= rd_bank_q;
+                            next_bx_q        <= rd_bx_q;
+                            next_row_phase_q <= rd_row_phase_q;
+                            next_block_row_q <= rd_block_row_q;
+                        end else begin
+                            next_valid_q <= 1'b0;
+                        end
                     end else if (rd_resp_valid_q) begin
                         cur_valid_q       <= 1'b1;
                         cur_word_q        <= rd_data_q;

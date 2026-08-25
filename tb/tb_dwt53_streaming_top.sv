@@ -106,6 +106,58 @@ module tb_dwt53_streaming_top #(
         .cp_re_xor(cp_re_xor), .cp_re_a(cp_re_a), .cp_re_b(cp_re_b)
     );
 
+    // TEMP: localize which internal sticky error source fires first.
+    logic dbg_prev_input_proto, dbg_prev_l1_proto, dbg_prev_l2_proto;
+    logic dbg_prev_il2_proto, dbg_prev_il1_proto;
+    logic dbg_prev_il2_buf, dbg_prev_il1_buf;
+    logic dbg_prev_align_ovf, dbg_prev_align_udf;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            dbg_prev_input_proto <= 1'b0;
+            dbg_prev_l1_proto    <= 1'b0;
+            dbg_prev_l2_proto    <= 1'b0;
+            dbg_prev_il2_proto   <= 1'b0;
+            dbg_prev_il1_proto   <= 1'b0;
+            dbg_prev_il2_buf     <= 1'b0;
+            dbg_prev_il1_buf     <= 1'b0;
+            dbg_prev_align_ovf   <= 1'b0;
+            dbg_prev_align_udf   <= 1'b0;
+        end else begin
+            if (dut.input_protocol_error_q && !dbg_prev_input_proto)
+                $display("[DBG] cycle=%0d FIRST input_protocol_error", sim_cycle);
+            if (dut.l1_protocol && !dbg_prev_l1_proto)
+                $display("[DBG] cycle=%0d FIRST l1_protocol", sim_cycle);
+            if (dut.l2_protocol && !dbg_prev_l2_proto)
+                $display("[DBG] cycle=%0d FIRST l2_protocol", sim_cycle);
+            if (dut.il2_protocol && !dbg_prev_il2_proto)
+                $display("[DBG] cycle=%0d FIRST il2_protocol", sim_cycle);
+            if (dut.il1_protocol && !dbg_prev_il1_proto)
+                $display("[DBG] cycle=%0d FIRST il1_protocol", sim_cycle);
+
+            if (dut.il2_buffer && !dbg_prev_il2_buf)
+                $display("[DBG] cycle=%0d FIRST il2_buffer", sim_cycle);
+            if (dut.il1_buffer && !dbg_prev_il1_buf)
+                $display("[DBG] cycle=%0d FIRST il1_buffer", sim_cycle);
+            if (dut.align_overflow && !dbg_prev_align_ovf)
+                $display("[DBG] cycle=%0d FIRST align_overflow count=%0d", sim_cycle,
+                         dut.u_band_align.count_q);
+            if (dut.align_underflow && !dbg_prev_align_udf)
+                $display("[DBG] cycle=%0d FIRST align_underflow count=%0d", sim_cycle,
+                         dut.u_band_align.count_q);
+
+            dbg_prev_input_proto <= dut.input_protocol_error_q;
+            dbg_prev_l1_proto    <= dut.l1_protocol;
+            dbg_prev_l2_proto    <= dut.l2_protocol;
+            dbg_prev_il2_proto   <= dut.il2_protocol;
+            dbg_prev_il1_proto   <= dut.il1_protocol;
+            dbg_prev_il2_buf     <= dut.il2_buffer;
+            dbg_prev_il1_buf     <= dut.il1_buffer;
+            dbg_prev_align_ovf   <= dut.align_overflow;
+            dbg_prev_align_udf   <= dut.align_underflow;
+        end
+    end
+
     function automatic bit file_exists(input string p);
         integer fd;
         begin

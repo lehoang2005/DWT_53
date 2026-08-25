@@ -1,0 +1,14 @@
+# Questa / simulation artifacts
+sim/work/
+sim/log/
+sim/*.wlf
+sim/*.dbg
+sim/*.log
+sim/*.ucdb
+sim/coverage/
+sim/Makefile.backup
+
+# Generic generated files
+*.wlf
+*.dbg
+*.ucdb

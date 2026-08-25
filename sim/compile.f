@@ -1,2 +1,2 @@
--f rtl_baseline.f
+-f rtl.f
 -f tb.f

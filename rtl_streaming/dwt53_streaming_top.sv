@@ -29,14 +29,14 @@ module dwt53_streaming_top #(
     parameter bit CHECKPOINT_EN   = 1'b1,
     parameter bit A_SIGN_EXTEND   = 1'b0
 ) (
-    input  logic                 sys_clk,
-    input  logic                 sys_rst_n,
+    input  wire                  sys_clk,
+    input  wire                  sys_rst_n,
 
-    input  logic                 in_valid,
-    input  logic [7:0]           in_y,
-    input  logic                 in_sof,
-    input  logic                 in_eol,
-    input  logic                 in_eof,
+    input  wire                  in_valid,
+    input  wire  [7:0]           in_y,
+    input  wire                  in_sof,
+    input  wire                  in_eol,
+    input  wire                  in_eof,
 
     output logic                 frame_ready,
     output logic                 busy,
