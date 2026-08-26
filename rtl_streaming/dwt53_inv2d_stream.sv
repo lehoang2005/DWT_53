@@ -13,6 +13,10 @@
 // The module stores only bounded per-column vertical state plus two ping-pong
 // 2-row block buffers. It never stores a complete frame.
 //
+// Timing-closure note: a throughput-1 V1 register separates inverse vertical
+// and inverse horizontal arithmetic. This preserves sample order/bit arithmetic
+// while shortening the register-to-M10K combinational path.
+//
 // PIXEL_GAP controls the output pacing:
 //   PIXEL_GAP=1 : one reconstructed pixel every clock while a row-pair drains.
 //   PIXEL_GAP=4 : one reconstructed pixel every four clocks.
@@ -163,7 +167,33 @@ module dwt53_inv2d_stream #(
     assign v_h_odd  = phh_ext + ((peh_ext + ecur_h) >>> 1);
 
     // -------------------------------------------------------------------------
+    // V1 timing pipeline: inverse-vertical -> inverse-horizontal.
+    //
+    // TimeQuest on Cyclone V showed the former critical path crossing the
+    // complete vertical inverse, complete horizontal inverse, block packing,
+    // and the M10K write-data port in one cycle.  Registering the four vertical
+    // intermediate samples here cuts that arithmetic cone at the natural 2-D
+    // transform boundary without changing the Le Gall 5/3 arithmetic itself.
+    // Metadata is delayed with the samples so row/bank/write scheduling remains
+    // aligned.  First/last-column conditions are predecoded into 1-bit V1 flags
+    // so the horizontal stage does not rebuild X-wide boundary comparators.
+    // One V1 item can be accepted and one can be consumed every cycle.
+    // -------------------------------------------------------------------------
+    logic                         v1_valid_q;
+    logic                         v1_is_flush_q;
+    logic [X_W-1:0]               v1_x_q;
+    // Predecoded horizontal-boundary flags.  Registering these on the S0->V1
+    // boundary removes the X-wide equality comparators from the V1 critical
+    // cycle (TimeQuest showed v1_x_q -> overflow_error as the remaining path).
+    logic                         v1_first_x_q;
+    logic                         v1_last_x_q;
+    logic [Y_W-1:0]               v1_block_row_q;
+    logic signed [EXT_W-1:0]      v1_l_even_q, v1_l_odd_q;
+    logic signed [EXT_W-1:0]      v1_h_even_q, v1_h_odd_q;
+
+    // -------------------------------------------------------------------------
     // Horizontal inverse state for the two rows reconstructed in parallel.
+    // This stage now consumes only registered V1 vertical results.
     // -------------------------------------------------------------------------
     logic signed [DATA_W-1:0] h_prev_h_even_q, h_prev_e_even_q;
     logic signed [DATA_W-1:0] h_prev_h_odd_q,  h_prev_e_odd_q;
@@ -177,10 +207,10 @@ module dwt53_inv2d_stream #(
     assign hph_odd_ext  = {{(EXT_W-DATA_W){h_prev_h_odd_q[DATA_W-1]}},  h_prev_h_odd_q};
     assign hpe_odd_ext  = {{(EXT_W-DATA_W){h_prev_e_odd_q[DATA_W-1]}},  h_prev_e_odd_q};
 
-    assign h_e_cur_even = v_l_even -
-        ((((s0_x_q == 0) ? v_h_even : hph_even_ext) + v_h_even + 2) >>> 2);
-    assign h_e_cur_odd  = v_l_odd -
-        ((((s0_x_q == 0) ? v_h_odd : hph_odd_ext) + v_h_odd + 2) >>> 2);
+    assign h_e_cur_even = v1_l_even_q -
+        ((((v1_first_x_q) ? v1_h_even_q : hph_even_ext) + v1_h_even_q + 2) >>> 2);
+    assign h_e_cur_odd  = v1_l_odd_q -
+        ((((v1_first_x_q) ? v1_h_odd_q : hph_odd_ext) + v1_h_odd_q + 2) >>> 2);
 
     logic signed [EXT_W-1:0] p00_prev, p01_prev, p10_prev, p11_prev;
     logic signed [EXT_W-1:0] p00_last, p01_last, p10_last, p11_last;
@@ -192,9 +222,9 @@ module dwt53_inv2d_stream #(
 
     // Horizontal right boundary e[M] = e[M-1].
     assign p00_last = h_e_cur_even;
-    assign p01_last = v_h_even + h_e_cur_even;
+    assign p01_last = v1_h_even_q + h_e_cur_even;
     assign p10_last = h_e_cur_odd;
-    assign p11_last = v_h_odd + h_e_cur_odd;
+    assign p11_last = v1_h_odd_q + h_e_cur_odd;
 
     function automatic logic fits_data_w(
         input logic signed [EXT_W-1:0] value
@@ -234,8 +264,39 @@ module dwt53_inv2d_stream #(
     // This coding style is compatible with block-RAM inference; there is no
     // combinational array read on the output path.
     // -------------------------------------------------------------------------
-    (* ramstyle = "M10K" *) logic [WORD_W-1:0] block_bank0 [0:SUB_W-1];
-    (* ramstyle = "M10K" *) logic [WORD_W-1:0] block_bank1 [0:SUB_W-1];
+    // Physical implementation: one simple-dual-port M10K-backed RAM.
+    // The two logical ping-pong banks occupy contiguous address ranges:
+    //   bank 0 -> [0 .. SUB_W-1]
+    //   bank 1 -> [SUB_W .. 2*SUB_W-1]
+    //
+    // Keeping a single write request and a single synchronous read request is
+    // intentional: Quartus 20.1 could not infer the previous two arrays as M10K
+    // because each array had several procedural write sites.
+    localparam int BLOCK_DEPTH  = 2 * SUB_W;
+    localparam int BLOCK_ADDR_W = (BLOCK_DEPTH <= 2) ? 1 : $clog2(BLOCK_DEPTH);
+    localparam logic [BLOCK_ADDR_W-1:0] BLOCK_BANK1_BASE = SUB_W;
+    localparam logic [X_W-1:0]          BLOCK_LAST_X     = SUB_W-1;
+
+    (* ramstyle = "M10K" *) logic [WORD_W-1:0] block_mem [0:BLOCK_DEPTH-1];
+
+    logic                    block_wr_en;
+    logic [BLOCK_ADDR_W-1:0] block_wr_addr;
+    logic [WORD_W-1:0]       block_wr_data;
+    logic                    block_wr_collision;
+
+    logic [BLOCK_ADDR_W-1:0] block_rd_addr;
+    logic [WORD_W-1:0]       block_rd_data_q;
+
+    function automatic logic [BLOCK_ADDR_W-1:0] block_addr(
+        input logic             bank,
+        input logic [X_W-1:0]   bx
+    );
+        logic [BLOCK_ADDR_W-1:0] bx_ext;
+        begin
+            bx_ext = {{(BLOCK_ADDR_W-X_W){1'b0}}, bx};
+            block_addr = bank ? (BLOCK_BANK1_BASE + bx_ext) : bx_ext;
+        end
+    endfunction
 
     logic bank0_ready_q, bank1_ready_q;
     logic drain_buffer_error_q;
@@ -288,9 +349,6 @@ module dwt53_inv2d_stream #(
     logic signed [EXT_W-1:0] f_phl_ext, f_pel_ext, f_phh_ext, f_peh_ext;
     logic signed [EXT_W-1:0] f_v_l_even, f_v_l_odd;
     logic signed [EXT_W-1:0] f_v_h_even, f_v_h_odd;
-    logic signed [EXT_W-1:0] f_h_e_cur_even, f_h_e_cur_odd;
-    logic signed [EXT_W-1:0] f_p00_prev, f_p01_prev, f_p10_prev, f_p11_prev;
-    logic signed [EXT_W-1:0] f_p00_last, f_p01_last, f_p10_last, f_p11_last;
 
     assign f_phl_ext = {{(EXT_W-DATA_W){fq_prev_h_l[DATA_W-1]}}, fq_prev_h_l};
     assign f_pel_ext = {{(EXT_W-DATA_W){fq_prev_e_l[DATA_W-1]}}, fq_prev_e_l};
@@ -303,86 +361,89 @@ module dwt53_inv2d_stream #(
     assign f_v_h_even = f_peh_ext;
     assign f_v_h_odd  = f_phh_ext + f_peh_ext;
 
-    assign f_h_e_cur_even = f_v_l_even -
-        ((((flush_x_pipe_q == 0) ? f_v_h_even : hph_even_ext) + f_v_h_even + 2) >>> 2);
-    assign f_h_e_cur_odd  = f_v_l_odd -
-        ((((flush_x_pipe_q == 0) ? f_v_h_odd : hph_odd_ext) + f_v_h_odd + 2) >>> 2);
-
-    assign f_p00_prev = hpe_even_ext;
-    assign f_p01_prev = hph_even_ext + ((hpe_even_ext + f_h_e_cur_even) >>> 1);
-    assign f_p10_prev = hpe_odd_ext;
-    assign f_p11_prev = hph_odd_ext + ((hpe_odd_ext + f_h_e_cur_odd) >>> 1);
-
-    assign f_p00_last = f_h_e_cur_even;
-    assign f_p01_last = f_v_h_even + f_h_e_cur_even;
-    assign f_p10_last = f_h_e_cur_odd;
-    assign f_p11_last = f_v_h_odd + f_h_e_cur_odd;
-
     // -------------------------------------------------------------------------
     // Main transform/control state.
     // -------------------------------------------------------------------------
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            h_prev_h_even_q        <= '0;
-            h_prev_e_even_q        <= '0;
-            h_prev_h_odd_q         <= '0;
-            h_prev_e_odd_q         <= '0;
+            v1_valid_q              <= 1'b0;
+            v1_is_flush_q           <= 1'b0;
+            v1_x_q                  <= '0;
+            v1_first_x_q            <= 1'b0;
+            v1_last_x_q             <= 1'b0;
+            v1_block_row_q          <= '0;
+            v1_l_even_q             <= '0;
+            v1_l_odd_q              <= '0;
+            v1_h_even_q             <= '0;
+            v1_h_odd_q              <= '0;
 
-            bank0_set_q            <= 1'b0;
-            bank1_set_q            <= 1'b0;
-            bank0_row_q            <= '0;
-            bank1_row_q            <= '0;
+            h_prev_h_even_q         <= '0;
+            h_prev_e_even_q         <= '0;
+            h_prev_h_odd_q          <= '0;
+            h_prev_e_odd_q          <= '0;
 
-            fill_sel_q             <= 1'b0;
-            active_fill_bank_q     <= 1'b0;
-            active_block_row_q     <= '0;
+            bank0_set_q             <= 1'b0;
+            bank1_set_q             <= 1'b0;
+            bank0_row_q             <= '0;
+            bank1_row_q             <= '0;
 
-            last_block_pending_q   <= 1'b0;
-            last_block_word_q      <= '0;
-            last_block_bank_q      <= 1'b0;
-            last_block_row_q       <= '0;
+            fill_sel_q              <= 1'b0;
+            active_fill_bank_q      <= 1'b0;
+            active_block_row_q      <= '0;
 
-            bottom_flush_request_q <= 1'b0;
-            flush_active_q         <= 1'b0;
-            flush_issue_count_q    <= '0;
-            flush_pipe_valid_q     <= 1'b0;
-            flush_x_pipe_q         <= '0;
-            fq_prev_h_l            <= '0;
-            fq_prev_e_l            <= '0;
-            fq_prev_h_h            <= '0;
-            fq_prev_e_h            <= '0;
+            last_block_pending_q    <= 1'b0;
+            last_block_word_q       <= '0;
+            last_block_bank_q       <= 1'b0;
+            last_block_row_q        <= '0;
 
-            overflow_error         <= 1'b0;
-            buffer_error           <= 1'b0;
-            protocol_error         <= 1'b0;
+            bottom_flush_request_q  <= 1'b0;
+            flush_active_q          <= 1'b0;
+            flush_issue_count_q     <= '0;
+            flush_pipe_valid_q      <= 1'b0;
+            flush_x_pipe_q          <= '0;
+            fq_prev_h_l             <= '0;
+            fq_prev_e_l             <= '0;
+            fq_prev_h_h             <= '0;
+            fq_prev_e_h             <= '0;
+
+            overflow_error          <= 1'b0;
+            buffer_error            <= 1'b0;
+            protocol_error          <= 1'b0;
         end else begin
-            if (drain_buffer_error_q)
+            if (drain_buffer_error_q || block_wr_collision)
                 buffer_error <= 1'b1;
+
             bank0_set_q <= 1'b0;
             bank1_set_q <= 1'b0;
+
+            // V1 is a throughput-1 pipeline register.  The old V1 item is
+            // consumed below on this edge while a new vertical result may be
+            // captured for the next cycle.
+            v1_valid_q <= 1'b0;
 
             // Commit the pending right-edge block. This completes a bank and
             // marks it ready for the drain engine.
             if (last_block_pending_q) begin
                 if (!last_block_bank_q) begin
-                    block_bank0[SUB_W-1] <= last_block_word_q;
-                    bank0_set_q          <= 1'b1;
-                    bank0_row_q          <= last_block_row_q;
+                    bank0_set_q <= 1'b1;
+                    bank0_row_q <= last_block_row_q;
                 end else begin
-                    block_bank1[SUB_W-1] <= last_block_word_q;
-                    bank1_set_q          <= 1'b1;
-                    bank1_row_q          <= last_block_row_q;
+                    bank1_set_q <= 1'b1;
+                    bank1_row_q <= last_block_row_q;
                 end
                 fill_sel_q           <= ~last_block_bank_q;
                 last_block_pending_q <= 1'b0;
             end
 
-            // Normal input processing.
+            // -----------------------------------------------------------------
+            // Stage S0: vertical inverse and bounded per-column state update.
+            // y=0 initializes vertical state but does not yet produce an output
+            // row pair.  For y>0, register the completed vertical pair into V1.
+            // -----------------------------------------------------------------
             if (s0_valid_q) begin
                 if (flush_active_q)
                     protocol_error <= 1'b1;
 
-                // Store current vertical inverse state for all rows.
                 prev_h_l_mem[s0_x_q] <= s0_lh_q;
                 prev_e_l_mem[s0_x_q] <= ecur_l[DATA_W-1:0];
                 prev_h_h_mem[s0_x_q] <= s0_hh_q;
@@ -392,73 +453,87 @@ module dwt53_inv2d_stream #(
                     overflow_error <= 1'b1;
 
                 if (s0_y_q > 0) begin
-                    // A new reconstructed two-row block row starts at x=0.
-                    if (s0_x_q == 0) begin
-                        active_fill_bank_q <= fill_sel_q;
-                        active_block_row_q <= s0_y_q - 1'b1;
+                    v1_valid_q     <= 1'b1;
+                    v1_is_flush_q  <= 1'b0;
+                    v1_x_q         <= s0_x_q;
+                    v1_first_x_q   <= (s0_x_q == '0);
+                    v1_last_x_q    <= (s0_x_q == BLOCK_LAST_X);
+                    v1_block_row_q <= s0_y_q - 1'b1;
+                    v1_l_even_q    <= v_l_even;
+                    v1_l_odd_q     <= v_l_odd;
+                    v1_h_even_q    <= v_h_even;
+                    v1_h_odd_q     <= v_h_odd;
 
-                        // In steady state this must never happen: there is no
-                        // pixel-level backpressure. Keep the sticky error so TB
-                        // and hardware diagnostics expose a broken schedule.
-                        if ((!fill_sel_q && bank0_ready_q && !bank0_release_now) ||
-                            ( fill_sel_q && bank1_ready_q && !bank1_release_now))
-                            buffer_error <= 1'b1;
-
-                        h_prev_h_even_q <= v_h_even[DATA_W-1:0];
-                        h_prev_e_even_q <= h_e_cur_even[DATA_W-1:0];
-                        h_prev_h_odd_q  <= v_h_odd[DATA_W-1:0];
-                        h_prev_e_odd_q  <= h_e_cur_odd[DATA_W-1:0];
-
-                        if (!fits_data_w(v_l_even) || !fits_data_w(v_l_odd) ||
-                            !fits_data_w(v_h_even) || !fits_data_w(v_h_odd) ||
-                            !fits_data_w(h_e_cur_even) || !fits_data_w(h_e_cur_odd))
-                            overflow_error <= 1'b1;
-                    end else begin
-                        // Finish 2x2 block x-1.
-                        if (!active_fill_bank_q)
-                            block_bank0[s0_x_q-1'b1] <=
-                                pack_block(p00_prev,p01_prev,p10_prev,p11_prev);
-                        else
-                            block_bank1[s0_x_q-1'b1] <=
-                                pack_block(p00_prev,p01_prev,p10_prev,p11_prev);
-
-                        if (!fits_data_w(p00_prev) || !fits_data_w(p01_prev) ||
-                            !fits_data_w(p10_prev) || !fits_data_w(p11_prev) ||
-                            !fits_data_w(h_e_cur_even) || !fits_data_w(h_e_cur_odd))
-                            overflow_error <= 1'b1;
-
-                        h_prev_h_even_q <= v_h_even[DATA_W-1:0];
-                        h_prev_e_even_q <= h_e_cur_even[DATA_W-1:0];
-                        h_prev_h_odd_q  <= v_h_odd[DATA_W-1:0];
-                        h_prev_e_odd_q  <= h_e_cur_odd[DATA_W-1:0];
-
-                        if (s0_x_q == SUB_W-1) begin
-                            // The final horizontal pair uses e[M]=e[M-1].
-                            if (last_block_pending_q)
-                                buffer_error <= 1'b1;
-
-                            last_block_pending_q <= 1'b1;
-                            last_block_bank_q    <= active_fill_bank_q;
-                            last_block_row_q     <= active_block_row_q;
-                            last_block_word_q    <=
-                                pack_block(p00_last,p01_last,p10_last,p11_last);
-
-                            if (!fits_data_w(p00_last) || !fits_data_w(p01_last) ||
-                                !fits_data_w(p10_last) || !fits_data_w(p11_last))
-                                overflow_error <= 1'b1;
-                        end
-                    end
+                    // Keep vertical-range diagnostics on the vertical side of
+                    // the new pipeline boundary.
+                    if (!fits_data_w(v_l_even) || !fits_data_w(v_l_odd) ||
+                        !fits_data_w(v_h_even) || !fits_data_w(v_h_odd))
+                        overflow_error <= 1'b1;
                 end
 
                 if (s0_eof_q)
                     bottom_flush_request_q <= 1'b1;
             end
 
-            // Begin bottom flush only after the normal final block commit AND
-            // only when the bank selected for the flush is free. This is the
-            // v0.2 fix for the end-of-frame ping-pong overwrite hazard.
+            // -----------------------------------------------------------------
+            // Stage V1: horizontal inverse, block formation, and right boundary.
+            // All arithmetic here starts from registered vertical intermediates.
+            // -----------------------------------------------------------------
+            if (v1_valid_q) begin
+                if (v1_first_x_q) begin
+                    active_fill_bank_q <= fill_sel_q;
+                    active_block_row_q <= v1_block_row_q;
+
+                    if ((!fill_sel_q && bank0_ready_q && !bank0_release_now) ||
+                        ( fill_sel_q && bank1_ready_q && !bank1_release_now))
+                        buffer_error <= 1'b1;
+                end
+
+                h_prev_h_even_q <= v1_h_even_q[DATA_W-1:0];
+                h_prev_e_even_q <= h_e_cur_even[DATA_W-1:0];
+                h_prev_h_odd_q  <= v1_h_odd_q[DATA_W-1:0];
+                h_prev_e_odd_q  <= h_e_cur_odd[DATA_W-1:0];
+
+                if (!fits_data_w(h_e_cur_even) || !fits_data_w(h_e_cur_odd))
+                    overflow_error <= 1'b1;
+
+                if (!v1_first_x_q) begin
+                    if (!fits_data_w(p00_prev) || !fits_data_w(p01_prev) ||
+                        !fits_data_w(p10_prev) || !fits_data_w(p11_prev))
+                        overflow_error <= 1'b1;
+
+                    if (v1_last_x_q) begin
+                        if (last_block_pending_q)
+                            buffer_error <= 1'b1;
+
+                        last_block_pending_q <= 1'b1;
+                        last_block_bank_q    <= active_fill_bank_q;
+                        last_block_row_q     <= active_block_row_q;
+                        last_block_word_q    <=
+                            pack_block(p00_last,p01_last,p10_last,p11_last);
+
+                        if (!fits_data_w(p00_last) || !fits_data_w(p01_last) ||
+                            !fits_data_w(p10_last) || !fits_data_w(p11_last))
+                            overflow_error <= 1'b1;
+
+                        // The final V1 item of the bottom-boundary sweep is the
+                        // point at which the flush is logically complete.  Keep
+                        // the request active until then so new frame input cannot
+                        // overlap an in-flight V1 flush sample.
+                        if (v1_is_flush_q) begin
+                            flush_active_q          <= 1'b0;
+                            bottom_flush_request_q  <= 1'b0;
+                        end
+                    end
+                end
+            end
+
+            // Begin bottom flush only after every normal item has crossed V1,
+            // after the normal final block commit, and when the selected bank is
+            // free.  The added !v1_valid_q is required by the timing pipeline.
             if (bottom_flush_request_q && !flush_active_q &&
-                !last_block_pending_q && !s0_valid_q && fill_bank_free) begin
+                !last_block_pending_q && !s0_valid_q && !v1_valid_q &&
+                fill_bank_free) begin
                 flush_active_q      <= 1'b1;
                 flush_issue_count_q <= '0;
             end
@@ -475,51 +550,26 @@ module dwt53_inv2d_stream #(
                 flush_issue_count_q <= flush_issue_count_q + 1'b1;
             end
 
+            // Register bottom-boundary vertical results into the same V1
+            // boundary used by normal traffic.  Normal and flush production are
+            // frame-atomically separated; overlap is therefore a protocol error.
             if (flush_pipe_valid_q) begin
-                if (flush_x_pipe_q == 0) begin
-                    active_fill_bank_q <= fill_sel_q;
-                    active_block_row_q <= SUB_H-1;
+                if (s0_valid_q && (s0_y_q > 0))
+                    protocol_error <= 1'b1;
 
-                    // Should be impossible because flush start waited for free.
-                    if ((!fill_sel_q && bank0_ready_q && !bank0_release_now) ||
-                        ( fill_sel_q && bank1_ready_q && !bank1_release_now))
-                        buffer_error <= 1'b1;
-
-                    h_prev_h_even_q <= f_v_h_even[DATA_W-1:0];
-                    h_prev_e_even_q <= f_h_e_cur_even[DATA_W-1:0];
-                    h_prev_h_odd_q  <= f_v_h_odd[DATA_W-1:0];
-                    h_prev_e_odd_q  <= f_h_e_cur_odd[DATA_W-1:0];
-                end else begin
-                    if (!active_fill_bank_q)
-                        block_bank0[flush_x_pipe_q-1'b1] <=
-                            pack_block(f_p00_prev,f_p01_prev,f_p10_prev,f_p11_prev);
-                    else
-                        block_bank1[flush_x_pipe_q-1'b1] <=
-                            pack_block(f_p00_prev,f_p01_prev,f_p10_prev,f_p11_prev);
-
-                    h_prev_h_even_q <= f_v_h_even[DATA_W-1:0];
-                    h_prev_e_even_q <= f_h_e_cur_even[DATA_W-1:0];
-                    h_prev_h_odd_q  <= f_v_h_odd[DATA_W-1:0];
-                    h_prev_e_odd_q  <= f_h_e_cur_odd[DATA_W-1:0];
-
-                    if (flush_x_pipe_q == SUB_W-1) begin
-                        if (last_block_pending_q)
-                            buffer_error <= 1'b1;
-
-                        last_block_pending_q <= 1'b1;
-                        last_block_bank_q    <= active_fill_bank_q;
-                        last_block_row_q     <= SUB_H-1;
-                        last_block_word_q    <=
-                            pack_block(f_p00_last,f_p01_last,f_p10_last,f_p11_last);
-
-                        flush_active_q         <= 1'b0;
-                        bottom_flush_request_q <= 1'b0;
-                    end
-                end
+                v1_valid_q     <= 1'b1;
+                v1_is_flush_q  <= 1'b1;
+                v1_x_q         <= flush_x_pipe_q;
+                v1_first_x_q   <= (flush_x_pipe_q == '0);
+                v1_last_x_q    <= (flush_x_pipe_q == BLOCK_LAST_X);
+                v1_block_row_q <= SUB_H-1;
+                v1_l_even_q    <= f_v_l_even;
+                v1_l_odd_q     <= f_v_l_odd;
+                v1_h_even_q    <= f_v_h_even;
+                v1_h_odd_q     <= f_v_h_odd;
 
                 if (!fits_data_w(f_v_l_even) || !fits_data_w(f_v_l_odd) ||
-                    !fits_data_w(f_v_h_even) || !fits_data_w(f_v_h_odd) ||
-                    !fits_data_w(f_h_e_cur_even) || !fits_data_w(f_h_e_cur_odd))
+                    !fits_data_w(f_v_h_even) || !fits_data_w(f_v_h_odd))
                     overflow_error <= 1'b1;
             end
 
@@ -527,6 +577,44 @@ module dwt53_inv2d_stream #(
             // for this frame-atomic streaming core.
             if (in_valid && (bottom_flush_request_q || flush_active_q))
                 protocol_error <= 1'b1;
+        end
+    end
+
+    // -------------------------------------------------------------------------
+    // Block-buffer write arbitration.
+    //
+    // After the V1 pipeline, normal and bottom-flush traffic share one
+    // horizontal/block producer. The legal schedule permits at most one
+    // block-buffer write per cycle:
+    //   1) pending right-edge commit,
+    //   2) V1 reconstructed block.
+    //
+    // Priority only defines deterministic behavior if an illegal overlap ever
+    // occurs; block_wr_collision makes that condition sticky-visible as a
+    // buffer_error. The regression-proven schedule should never assert it.
+    // -------------------------------------------------------------------------
+    always_comb begin
+        block_wr_en        = 1'b0;
+        block_wr_addr      = '0;
+        block_wr_data      = '0;
+        block_wr_collision = 1'b0;
+
+        if (last_block_pending_q) begin
+            block_wr_en   = 1'b1;
+            block_wr_addr = block_addr(last_block_bank_q, BLOCK_LAST_X);
+            block_wr_data = last_block_word_q;
+        end
+
+        // Normal and bottom-flush samples share the registered V1 horizontal
+        // stage, so they also share one block-write producer here.
+        if (v1_valid_q && !v1_first_x_q) begin
+            if (block_wr_en)
+                block_wr_collision = 1'b1;
+            else begin
+                block_wr_en   = 1'b1;
+                block_wr_addr = block_addr(active_fill_bank_q, v1_x_q - 1'b1);
+                block_wr_data = pack_block(p00_prev,p01_prev,p10_prev,p11_prev);
+            end
         end
     end
 
@@ -565,7 +653,8 @@ module dwt53_inv2d_stream #(
     logic [Y_W-1:0] rd_req_block_row;
 
     logic rd_resp_valid_q;
-    logic [WORD_W-1:0] rd_data_q;
+    wire  [WORD_W-1:0] rd_data_q;
+    assign rd_data_q = block_rd_data_q;
     logic rd_bank_q;
     logic [X_W-1:0] rd_bx_q;
     logic rd_row_phase_q;
@@ -688,11 +777,28 @@ module dwt53_inv2d_stream #(
         end
     end
 
-    // Registered read port: suitable for synchronous block-RAM inference.
+    // -------------------------------------------------------------------------
+    // Single physical M10K RAM port pair.
+    //
+    // One registered read port + one write port, with no reset on the memory
+    // array or read-data register. This is the canonical structure we want
+    // Quartus to map into M10K blocks.
+    // -------------------------------------------------------------------------
+    assign block_rd_addr = block_addr(rd_req_bank, rd_req_bx);
+
+    always_ff @(posedge clk) begin
+        if (block_wr_en)
+            block_mem[block_wr_addr] <= block_wr_data;
+
+        if (rd_req)
+            block_rd_data_q <= block_mem[block_rd_addr];
+    end
+
+    // Register the metadata alongside the synchronous RAM read request.
+    // block_rd_data_q itself is registered in the RAM process above.
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             rd_resp_valid_q <= 1'b0;
-            rd_data_q       <= '0;
             rd_bank_q       <= 1'b0;
             rd_bx_q         <= '0;
             rd_row_phase_q  <= 1'b0;
@@ -700,11 +806,6 @@ module dwt53_inv2d_stream #(
         end else begin
             rd_resp_valid_q <= rd_req;
             if (rd_req) begin
-                if (rd_req_bank)
-                    rd_data_q <= block_bank1[rd_req_bx];
-                else
-                    rd_data_q <= block_bank0[rd_req_bx];
-
                 rd_bank_q      <= rd_req_bank;
                 rd_bx_q        <= rd_req_bx;
                 rd_row_phase_q <= rd_req_row_phase;
