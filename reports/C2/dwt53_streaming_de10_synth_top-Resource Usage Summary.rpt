@@ -1,0 +1,136 @@
+Resource Usage Summary report for dwt53_streaming_de10_synth_top
+Wed Aug 26 23:25:42 2026
+Quartus Prime Version 20.1.1 Build 720 11/11/2020 SJ Lite Edition
+
+
+---------------------
+; Table of Contents ;
+---------------------
+  1. Legal Notice
+  2. Fitter Resource Usage Summary
+
+
+
+----------------
+; Legal Notice ;
+----------------
+Copyright (C) 2020  Intel Corporation. All rights reserved.
+Your use of Intel Corporation's design tools, logic functions 
+and other software and tools, and any partner logic 
+functions, and any output files from any of the foregoing 
+(including device programming or simulation files), and any 
+associated documentation or information are expressly subject 
+to the terms and conditions of the Intel Program License 
+Subscription Agreement, the Intel Quartus Prime License Agreement,
+the Intel FPGA IP License Agreement, or other applicable license
+agreement, including, without limitation, that your use is for
+the sole purpose of programming logic devices manufactured by
+Intel and sold by Intel or its authorized distributors.  Please
+refer to the applicable agreement for further details, at
+https://fpgasoftware.intel.com/eula.
+
+
+
++---------------------------------------------------------------------------------------------+
+; Fitter Resource Usage Summary                                                               ;
++-------------------------------------------------------------+-----------------------+-------+
+; Resource                                                    ; Usage                 ; %     ;
++-------------------------------------------------------------+-----------------------+-------+
+; Logic utilization (ALMs needed / total ALMs on device)      ; 3,166 / 41,910        ; 8 %   ;
+; ALMs needed [=A-B+C]                                        ; 3,166                 ;       ;
+;     [A] ALMs used in final placement [=a+b+c+d]             ; 3,883 / 41,910        ; 9 %   ;
+;         [a] ALMs used for LUT logic and registers           ; 1,200                 ;       ;
+;         [b] ALMs used for LUT logic                         ; 1,429                 ;       ;
+;         [c] ALMs used for registers                         ; 1,254                 ;       ;
+;         [d] ALMs used for memory (up to half of total ALMs) ; 0                     ;       ;
+;     [B] Estimate of ALMs recoverable by dense packing       ; 757 / 41,910          ; 2 %   ;
+;     [C] Estimate of ALMs unavailable [=a+b+c+d]             ; 40 / 41,910           ; < 1 % ;
+;         [a] Due to location constrained logic               ; 0                     ;       ;
+;         [b] Due to LAB-wide signal conflicts                ; 2                     ;       ;
+;         [c] Due to LAB input limits                         ; 38                    ;       ;
+;         [d] Due to virtual I/Os                             ; 0                     ;       ;
+;                                                             ;                       ;       ;
+; Difficulty packing design                                   ; Low                   ;       ;
+;                                                             ;                       ;       ;
+; Total LABs:  partially or completely used                   ; 539 / 4,191           ; 13 %  ;
+;     -- Logic LABs                                           ; 539                   ;       ;
+;     -- Memory LABs (up to half of total LABs)               ; 0                     ;       ;
+;                                                             ;                       ;       ;
+; Combinational ALUT usage for logic                          ; 4,831                 ;       ;
+;     -- 7 input functions                                    ; 53                    ;       ;
+;     -- 6 input functions                                    ; 354                   ;       ;
+;     -- 5 input functions                                    ; 782                   ;       ;
+;     -- 4 input functions                                    ; 778                   ;       ;
+;     -- <=3 input functions                                  ; 2,864                 ;       ;
+; Combinational ALUT usage for route-throughs                 ; 1,659                 ;       ;
+;                                                             ;                       ;       ;
+; Dedicated logic registers                                   ; 5,291                 ;       ;
+;     -- By type:                                             ;                       ;       ;
+;         -- Primary logic registers                          ; 4,908 / 83,820        ; 6 %   ;
+;         -- Secondary logic registers                        ; 383 / 83,820          ; < 1 % ;
+;     -- By function:                                         ;                       ;       ;
+;         -- Design implementation registers                  ; 5,128                 ;       ;
+;         -- Routing optimization registers                   ; 163                   ;       ;
+;                                                             ;                       ;       ;
+; Virtual pins                                                ; 0                     ;       ;
+; I/O pins                                                    ; 70 / 314              ; 22 %  ;
+;     -- Clock pins                                           ; 6 / 8                 ; 75 %  ;
+;     -- Dedicated input pins                                 ; 0 / 21                ; 0 %   ;
+;                                                             ;                       ;       ;
+; Hard processor system peripheral utilization                ;                       ;       ;
+;     -- Boot from FPGA                                       ; 0 / 1 ( 0 % )         ;       ;
+;     -- Clock resets                                         ; 0 / 1 ( 0 % )         ;       ;
+;     -- Cross trigger                                        ; 0 / 1 ( 0 % )         ;       ;
+;     -- S2F AXI                                              ; 0 / 1 ( 0 % )         ;       ;
+;     -- F2S AXI                                              ; 0 / 1 ( 0 % )         ;       ;
+;     -- AXI Lightweight                                      ; 0 / 1 ( 0 % )         ;       ;
+;     -- SDRAM                                                ; 0 / 1 ( 0 % )         ;       ;
+;     -- Interrupts                                           ; 0 / 1 ( 0 % )         ;       ;
+;     -- JTAG                                                 ; 0 / 1 ( 0 % )         ;       ;
+;     -- Loan I/O                                             ; 0 / 1 ( 0 % )         ;       ;
+;     -- MPU event standby                                    ; 0 / 1 ( 0 % )         ;       ;
+;     -- MPU general purpose                                  ; 0 / 1 ( 0 % )         ;       ;
+;     -- STM event                                            ; 0 / 1 ( 0 % )         ;       ;
+;     -- TPIU trace                                           ; 0 / 1 ( 0 % )         ;       ;
+;     -- DMA                                                  ; 0 / 1 ( 0 % )         ;       ;
+;     -- CAN                                                  ; 0 / 2 ( 0 % )         ;       ;
+;     -- EMAC                                                 ; 0 / 2 ( 0 % )         ;       ;
+;     -- I2C                                                  ; 0 / 4 ( 0 % )         ;       ;
+;     -- NAND Flash                                           ; 0 / 1 ( 0 % )         ;       ;
+;     -- QSPI                                                 ; 0 / 1 ( 0 % )         ;       ;
+;     -- SDMMC                                                ; 0 / 1 ( 0 % )         ;       ;
+;     -- SPI Master                                           ; 0 / 2 ( 0 % )         ;       ;
+;     -- SPI Slave                                            ; 0 / 2 ( 0 % )         ;       ;
+;     -- UART                                                 ; 0 / 2 ( 0 % )         ;       ;
+;     -- USB                                                  ; 0 / 2 ( 0 % )         ;       ;
+;                                                             ;                       ;       ;
+; M10K blocks                                                 ; 118 / 553             ; 21 %  ;
+; Total MLAB memory bits                                      ; 0                     ;       ;
+; Total block memory bits                                     ; 829,440 / 5,662,720   ; 15 %  ;
+; Total block memory implementation bits                      ; 1,208,320 / 5,662,720 ; 21 %  ;
+;                                                             ;                       ;       ;
+; Total DSP Blocks                                            ; 0 / 112               ; 0 %   ;
+;                                                             ;                       ;       ;
+; Fractional PLLs                                             ; 0 / 6                 ; 0 %   ;
+; Global signals                                              ; 2                     ;       ;
+;     -- Global clocks                                        ; 2 / 16                ; 13 %  ;
+;     -- Quadrant clocks                                      ; 0 / 66                ; 0 %   ;
+;     -- Horizontal periphery clocks                          ; 0 / 18                ; 0 %   ;
+; SERDES Transmitters                                         ; 0 / 100               ; 0 %   ;
+; SERDES Receivers                                            ; 0 / 100               ; 0 %   ;
+; JTAGs                                                       ; 0 / 1                 ; 0 %   ;
+; ASMI blocks                                                 ; 0 / 1                 ; 0 %   ;
+; CRC blocks                                                  ; 0 / 1                 ; 0 %   ;
+; Remote update blocks                                        ; 0 / 1                 ; 0 %   ;
+; Oscillator blocks                                           ; 0 / 1                 ; 0 %   ;
+; Impedance control blocks                                    ; 0 / 4                 ; 0 %   ;
+; Hard Memory Controllers                                     ; 0 / 1                 ; 0 %   ;
+; Average interconnect usage (total/H/V)                      ; 4.4% / 4.6% / 4.0%    ;       ;
+; Peak interconnect usage (total/H/V)                         ; 27.0% / 28.1% / 23.8% ;       ;
+; Maximum fan-out                                             ; 5409                  ;       ;
+; Highest non-global fan-out                                  ; 534                   ;       ;
+; Total fan-out                                               ; 44193                 ;       ;
+; Average fan-out                                             ; 3.67                  ;       ;
++-------------------------------------------------------------+-----------------------+-------+
+
+
