@@ -54,6 +54,9 @@ module dwt53_band_align #(
             $error("dwt53_band_align: DEPTH must be >= 2");
     end
 
+    // Vivado requires a clock-only RAM access process to infer UltraScale BRAM.
+    // This Xilinx-portability copy intentionally uses the AMD attribute; the
+    // frozen Quartus B0 source remains unchanged.
     (* ram_style = "block" *) logic [WORD_W-1:0] mem [0:DEPTH-1];
 
     logic [AW-1:0] wr_ptr_q, rd_ptr_q;
@@ -67,17 +70,20 @@ module dwt53_band_align #(
 
     wire do_push = push_valid && (count_q < DEPTH);
     wire do_pop  = ll_valid   && (count_q != 0);
-// Xilinx-compatible synchronous Block RAM access.
-// RAM contents and read-data register are intentionally not asynchronously reset.
-always_ff @(posedge clk) begin
-    if (rst_n) begin
-        if (do_push)
-            mem[wr_ptr_q] <= {push_hh, push_lh, push_hl};
 
-        if (do_pop)
-            rd_q <= mem[rd_ptr_q];
+    // Simple dual-port synchronous RAM: one write port and one read port.
+    // The memory and rd_q are not reset. FIFO-valid state is carried by
+    // count_q/pop_pending_q, so stale RAM data is never externally valid.
+    always_ff @(posedge clk) begin
+        if (rst_n) begin
+            if (do_push)
+                mem[wr_ptr_q] <= {push_hh, push_lh, push_hl};
+
+            if (do_pop)
+                rd_q <= mem[rd_ptr_q];
+        end
     end
-end
+
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             wr_ptr_q        <= '0;
@@ -130,7 +136,6 @@ end
                 if (count_q == 0) begin
                     underflow_error <= 1'b1;
                 end else begin
-                    // Synchronous-read model: data becomes rd_q for use next cycle.
                     ll_hold_q     <= ll_sample;
                     ll_sof_hold_q <= ll_sof;
                     ll_eol_hold_q <= ll_eol;

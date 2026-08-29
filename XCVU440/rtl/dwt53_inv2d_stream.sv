@@ -74,10 +74,12 @@ module dwt53_inv2d_stream #(
 
     // Vertical inverse state per column.
     // prev_h_* = H[n-1]; prev_e_* = reconstructed e[n-1].
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] prev_h_l_mem [0:SUB_W-1];
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] prev_e_l_mem [0:SUB_W-1];
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] prev_h_h_mem [0:SUB_W-1];
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] prev_e_h_mem [0:SUB_W-1];
+    // Xilinx-portability copy: force the four vertical-state arrays into
+    // UltraScale block RAM. The frozen Quartus B0 source remains unchanged.
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] prev_h_l_mem [0:SUB_W-1];
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] prev_e_l_mem [0:SUB_W-1];
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] prev_h_h_mem [0:SUB_W-1];
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] prev_e_h_mem [0:SUB_W-1];
 
     logic signed [DATA_W-1:0] q_prev_h_l, q_prev_e_l;
     logic signed [DATA_W-1:0] q_prev_h_h, q_prev_e_h;
@@ -92,10 +94,6 @@ module dwt53_inv2d_stream #(
         if (!rst_n) begin
             in_x_q      <= '0;
             in_y_q      <= '0;
-            q_prev_h_l  <= '0;
-            q_prev_e_l  <= '0;
-            q_prev_h_h  <= '0;
-            q_prev_e_h  <= '0;
             s0_valid_q  <= 1'b0;
             s0_ll_q     <= '0;
             s0_hl_q     <= '0;
@@ -107,11 +105,6 @@ module dwt53_inv2d_stream #(
         end else begin
             s0_valid_q <= in_valid;
             if (in_valid) begin
-                q_prev_h_l <= prev_h_l_mem[in_x_q];
-                q_prev_e_l <= prev_e_l_mem[in_x_q];
-                q_prev_h_h <= prev_h_h_mem[in_x_q];
-                q_prev_e_h <= prev_e_h_mem[in_x_q];
-
                 s0_ll_q    <= in_ll;
                 s0_hl_q    <= in_hl;
                 s0_lh_q    <= in_lh;
@@ -277,7 +270,7 @@ module dwt53_inv2d_stream #(
     localparam logic [BLOCK_ADDR_W-1:0] BLOCK_BANK1_BASE = SUB_W;
     localparam logic [X_W-1:0]          BLOCK_LAST_X     = SUB_W-1;
 
-    (* ramstyle = "M10K" *) logic [WORD_W-1:0] block_mem [0:BLOCK_DEPTH-1];
+    (* ram_style = "block" *) logic [WORD_W-1:0] block_mem [0:BLOCK_DEPTH-1];
 
     logic                    block_wr_en;
     logic [BLOCK_ADDR_W-1:0] block_wr_addr;
@@ -343,23 +336,55 @@ module dwt53_inv2d_stream #(
 
     logic flush_pipe_valid_q;
     logic [X_W-1:0] flush_x_pipe_q;
-    logic signed [DATA_W-1:0] fq_prev_h_l, fq_prev_e_l;
-    logic signed [DATA_W-1:0] fq_prev_h_h, fq_prev_e_h;
-
     logic signed [EXT_W-1:0] f_phl_ext, f_pel_ext, f_phh_ext, f_peh_ext;
     logic signed [EXT_W-1:0] f_v_l_even, f_v_l_odd;
     logic signed [EXT_W-1:0] f_v_h_even, f_v_h_odd;
 
-    assign f_phl_ext = {{(EXT_W-DATA_W){fq_prev_h_l[DATA_W-1]}}, fq_prev_h_l};
-    assign f_pel_ext = {{(EXT_W-DATA_W){fq_prev_e_l[DATA_W-1]}}, fq_prev_e_l};
-    assign f_phh_ext = {{(EXT_W-DATA_W){fq_prev_h_h[DATA_W-1]}}, fq_prev_h_h};
-    assign f_peh_ext = {{(EXT_W-DATA_W){fq_prev_e_h[DATA_W-1]}}, fq_prev_e_h};
+    // Normal input reads and bottom-flush reads are frame-atomically exclusive,
+    // so both consumers share the same registered RAM read data.
+    assign f_phl_ext = {{(EXT_W-DATA_W){q_prev_h_l[DATA_W-1]}}, q_prev_h_l};
+    assign f_pel_ext = {{(EXT_W-DATA_W){q_prev_e_l[DATA_W-1]}}, q_prev_e_l};
+    assign f_phh_ext = {{(EXT_W-DATA_W){q_prev_h_h[DATA_W-1]}}, q_prev_h_h};
+    assign f_peh_ext = {{(EXT_W-DATA_W){q_prev_e_h[DATA_W-1]}}, q_prev_e_h};
 
     // Vertical boundary e[M] = e[M-1] => odd = H + e.
     assign f_v_l_even = f_pel_ext;
     assign f_v_l_odd  = f_phl_ext + f_pel_ext;
     assign f_v_h_even = f_peh_ext;
     assign f_v_h_odd  = f_phh_ext + f_peh_ext;
+
+    // -------------------------------------------------------------------------
+    // Xilinx-compatible vertical-state RAM ports.
+    //
+    // The normal transform and bottom flush share one synchronous read port.
+    // Flush has priority only for an already-illegal overlap with new input;
+    // legal operation keeps the two request classes mutually exclusive.
+    // All memory accesses and the read-data registers are clock-only. Reset
+    // clears their associated valid/control state elsewhere instead.
+    // -------------------------------------------------------------------------
+    wire prev_flush_rd_req =
+        flush_active_q && (flush_issue_count_q < SUB_W);
+    wire prev_mem_rd_req = in_valid || prev_flush_rd_req;
+    wire [X_W-1:0] prev_mem_rd_addr = prev_flush_rd_req ?
+        flush_issue_count_q[X_W-1:0] : in_x_q;
+
+    always_ff @(posedge clk) begin
+        if (rst_n) begin
+            if (prev_mem_rd_req) begin
+                q_prev_h_l <= prev_h_l_mem[prev_mem_rd_addr];
+                q_prev_e_l <= prev_e_l_mem[prev_mem_rd_addr];
+                q_prev_h_h <= prev_h_h_mem[prev_mem_rd_addr];
+                q_prev_e_h <= prev_e_h_mem[prev_mem_rd_addr];
+            end
+
+            if (s0_valid_q) begin
+                prev_h_l_mem[s0_x_q] <= s0_lh_q;
+                prev_e_l_mem[s0_x_q] <= ecur_l[DATA_W-1:0];
+                prev_h_h_mem[s0_x_q] <= s0_hh_q;
+                prev_e_h_mem[s0_x_q] <= ecur_h[DATA_W-1:0];
+            end
+        end
+    end
 
     // -------------------------------------------------------------------------
     // Main transform/control state.
@@ -401,10 +426,6 @@ module dwt53_inv2d_stream #(
             flush_issue_count_q     <= '0;
             flush_pipe_valid_q      <= 1'b0;
             flush_x_pipe_q          <= '0;
-            fq_prev_h_l             <= '0;
-            fq_prev_e_l             <= '0;
-            fq_prev_h_h             <= '0;
-            fq_prev_e_h             <= '0;
 
             overflow_error          <= 1'b0;
             buffer_error            <= 1'b0;
@@ -443,11 +464,6 @@ module dwt53_inv2d_stream #(
             if (s0_valid_q) begin
                 if (flush_active_q)
                     protocol_error <= 1'b1;
-
-                prev_h_l_mem[s0_x_q] <= s0_lh_q;
-                prev_e_l_mem[s0_x_q] <= ecur_l[DATA_W-1:0];
-                prev_h_h_mem[s0_x_q] <= s0_hh_q;
-                prev_e_h_mem[s0_x_q] <= ecur_h[DATA_W-1:0];
 
                 if (!fits_data_w(ecur_l) || !fits_data_w(ecur_h))
                     overflow_error <= 1'b1;
@@ -540,11 +556,7 @@ module dwt53_inv2d_stream #(
 
             // Synchronous read pipeline for the final vertical boundary row.
             flush_pipe_valid_q <= 1'b0;
-            if (flush_active_q && (flush_issue_count_q < SUB_W)) begin
-                fq_prev_h_l         <= prev_h_l_mem[flush_issue_count_q[X_W-1:0]];
-                fq_prev_e_l         <= prev_e_l_mem[flush_issue_count_q[X_W-1:0]];
-                fq_prev_h_h         <= prev_h_h_mem[flush_issue_count_q[X_W-1:0]];
-                fq_prev_e_h         <= prev_e_h_mem[flush_issue_count_q[X_W-1:0]];
+            if (prev_flush_rd_req) begin
                 flush_x_pipe_q      <= flush_issue_count_q[X_W-1:0];
                 flush_pipe_valid_q  <= 1'b1;
                 flush_issue_count_q <= flush_issue_count_q + 1'b1;

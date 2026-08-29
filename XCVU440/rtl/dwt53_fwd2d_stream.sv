@@ -136,13 +136,15 @@ module dwt53_fwd2d_stream #(
     // Packed as separate memories for clarity. The logical storage is 3 rows
     // per horizontal branch (L-row and H-row), each SUB_W samples wide.
     // -------------------------------------------------------------------------
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] even_l_mem [0:SUB_W-1];
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] odd_l_mem  [0:SUB_W-1];
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] dprev_l_mem[0:SUB_W-1];
+    // Xilinx-portability copy: force the six line-state arrays into UltraScale
+    // block RAM. The frozen Quartus B0 source retains its M10K attributes.
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] even_l_mem [0:SUB_W-1];
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] odd_l_mem  [0:SUB_W-1];
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] dprev_l_mem[0:SUB_W-1];
 
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] even_h_mem [0:SUB_W-1];
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] odd_h_mem  [0:SUB_W-1];
-    (* ramstyle = "M10K" *) logic signed [DATA_W-1:0] dprev_h_mem[0:SUB_W-1];
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] even_h_mem [0:SUB_W-1];
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] odd_h_mem  [0:SUB_W-1];
+    (* ram_style = "block" *) logic signed [DATA_W-1:0] dprev_h_mem[0:SUB_W-1];
 
     // Single outstanding synchronous read pipeline.
     logic signed [DATA_W-1:0] even_l_q, odd_l_q, dprev_l_q;
@@ -155,8 +157,6 @@ module dwt53_fwd2d_stream #(
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            even_l_q  <= '0; odd_l_q  <= '0; dprev_l_q <= '0;
-            even_h_q  <= '0; odd_h_q  <= '0; dprev_h_q <= '0;
             s0_valid_q<= 1'b0;
             s0_l_q    <= '0;
             s0_h_q    <= '0;
@@ -165,14 +165,6 @@ module dwt53_fwd2d_stream #(
         end else begin
             s0_valid_q <= h_valid;
             if (h_valid) begin
-                even_l_q <= even_l_mem[h_col_q];
-                odd_l_q  <= odd_l_mem[h_col_q];
-                dprev_l_q<= dprev_l_mem[h_col_q];
-
-                even_h_q <= even_h_mem[h_col_q];
-                odd_h_q  <= odd_h_mem[h_col_q];
-                dprev_h_q<= dprev_h_mem[h_col_q];
-
                 s0_l_q   <= h_l;
                 s0_h_q   <= h_h;
                 s0_col_q <= h_col_q;
@@ -229,6 +221,43 @@ module dwt53_fwd2d_stream #(
     endfunction
 
     // -------------------------------------------------------------------------
+    // Xilinx-compatible line-state RAM ports.
+    //
+    // All RAM reads/writes and their read-data registers live in this
+    // clock-only process. Reset clears only the control/valid state elsewhere;
+    // RAM contents and read data need no reset because s0_valid_q masks them.
+    // This preserves the original one-cycle synchronous-read pipeline.
+    // -------------------------------------------------------------------------
+    always_ff @(posedge clk) begin
+        if (rst_n) begin
+            if (h_valid) begin
+                even_l_q  <= even_l_mem[h_col_q];
+                odd_l_q   <= odd_l_mem[h_col_q];
+                dprev_l_q <= dprev_l_mem[h_col_q];
+
+                even_h_q  <= even_h_mem[h_col_q];
+                odd_h_q   <= odd_h_mem[h_col_q];
+                dprev_h_q <= dprev_h_mem[h_col_q];
+            end
+
+            if (s0_valid_q) begin
+                if (s0_row_q == 0) begin
+                    even_l_mem[s0_col_q] <= s0_l_q;
+                    even_h_mem[s0_col_q] <= s0_h_q;
+                end else if (s0_row_q[0] && (s0_row_q != IMG_H-1)) begin
+                    odd_l_mem[s0_col_q] <= s0_l_q;
+                    odd_h_mem[s0_col_q] <= s0_h_q;
+                end else if (!s0_row_q[0]) begin
+                    even_l_mem[s0_col_q]  <= s0_l_q;
+                    even_h_mem[s0_col_q]  <= s0_h_q;
+                    dprev_l_mem[s0_col_q] <= d_l_mid[DATA_W-1:0];
+                    dprev_h_mem[s0_col_q] <= d_h_mid[DATA_W-1:0];
+                end
+            end
+        end
+    end
+
+    // -------------------------------------------------------------------------
     // Vertical state update and four-lane subband emission.
     // -------------------------------------------------------------------------
     always_ff @(posedge clk or negedge rst_n) begin
@@ -263,12 +292,8 @@ module dwt53_fwd2d_stream #(
             if (s0_valid_q) begin
                 if (s0_row_q == 0) begin
                     // First even row e[0].
-                    even_l_mem[s0_col_q] <= s0_l_q;
-                    even_h_mem[s0_col_q] <= s0_h_q;
                 end else if (s0_row_q[0] && (s0_row_q != IMG_H-1)) begin
                     // Interior odd row o[n].
-                    odd_l_mem[s0_col_q] <= s0_l_q;
-                    odd_h_mem[s0_col_q] <= s0_h_q;
                 end else if (!s0_row_q[0]) begin
                     // Interior even row e[n+1]: d[n] and s[n] are now known.
                     out_valid <= 1'b1;
@@ -285,11 +310,6 @@ module dwt53_fwd2d_stream #(
                         !fits_data_w(s_h_mid) || !fits_data_w(d_h_mid))
                         overflow_error <= 1'b1;
 
-                    // Slide the circulating state window.
-                    even_l_mem[s0_col_q] <= s0_l_q;
-                    even_h_mem[s0_col_q] <= s0_h_q;
-                    dprev_l_mem[s0_col_q]<= d_l_mid[DATA_W-1:0];
-                    dprev_h_mem[s0_col_q]<= d_h_mid[DATA_W-1:0];
                 end else begin
                     // Final odd row: use right/bottom boundary without waiting
                     // for a nonexistent next even row.
